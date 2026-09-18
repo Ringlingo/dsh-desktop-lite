@@ -1,9 +1,9 @@
-# build-release.ps1 - 构建 dsh-desktop-lite 免安装包
+﻿# build-release.ps1 - 构建 dsh-desktop-lite 免安装包
 # 用法: .\scripts\build-release.ps1
 
 param(
     [string]$Version = "0.0.1",
-    [string]$SourceDir = "D:\AI\project\dsh-portable"
+    [string]$SourceDir = (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,7 +17,11 @@ Write-Host "输出目录: $ReleaseDir"
 # 1. 编译 exe
 Write-Host "`n[1/6] 编译 exe..." -ForegroundColor Yellow
 Push-Location "$SourceDir\src-tauri"
-$env:Path = "C:\Users\Administrator\.cargo\bin;$env:Path"
+# 确保 cargo 可用：不在 PATH 时补上用户级安装位置（不写死任何机器路径）
+if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+    $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+    if (Test-Path $cargoBin) { $env:Path = "$cargoBin;$env:Path" }
+}
 cargo build --release 2>&1 | Select-Object -Last 5
 Pop-Location
 

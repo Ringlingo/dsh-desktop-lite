@@ -32,6 +32,12 @@ impl Error for ReadyParseError {}
 
 /// 解析一行 stdout。匹配则返回 `(port, url)`；非就绪行返回 `Ok(None)`；
 /// 形似就绪行但字段非法返回 `Err`。
+///
+/// 兼容两种就绪行：
+///   `dsh web: http://127.0.0.1:PORT`
+///   `dsh web: http://127.0.0.1:PORT/?token=XXX`   ← dsh 0.1.5 起带 token
+/// token 是登录凭据，**必须原样带进导航 URL**，否则窗口会停在登录页
+/// （8-19 基线只接受纯数字端口，实测导致「后端就绪但窗口不导航」）。
 pub fn parse_ready_line(line: &str) -> Result<Option<(u16, String)>, ReadyParseError> {
     let line = line.trim_end_matches(['\r', '\n']);
     // 严格前缀匹配，防止误报（R10）。
@@ -39,17 +45,34 @@ pub fn parse_ready_line(line: &str) -> Result<Option<(u16, String)>, ReadyParseE
     let Some(rest) = line.strip_prefix(PREFIX) else {
         return Ok(None);
     };
-    // rest 必须是纯数字端口，不允许尾随字符。
-    if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_digit()) {
+    // 端口 = 前导连续数字；其后只允许「空」或 `/?token=...` 这类安全尾随。
+    let digits_end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    if digits_end == 0 {
         return Ok(None);
     }
-    let port: u16 = rest
+    let (digits, tail) = rest.split_at(digits_end);
+    let port: u16 = digits
         .parse()
-        .map_err(|_| ReadyParseError::PortOutOfRange(rest.to_string()))?;
+        .map_err(|_| ReadyParseError::PortOutOfRange(digits.to_string()))?;
     if port < 1024 {
-        return Err(ReadyParseError::PortOutOfRange(rest.to_string()));
+        return Err(ReadyParseError::PortOutOfRange(digits.to_string()));
     }
-    Ok(Some((port, format!("http://127.0.0.1:{port}"))))
+    let url = if tail.is_empty() {
+        format!("http://127.0.0.1:{port}")
+    } else {
+        // 只接受 `/?token=` 形态，且字符集受限（保持防误报；不让任意内容进导航 URL）
+        let safe = tail.bytes().all(|b| {
+            b.is_ascii_alphanumeric()
+                || matches!(b, b'/' | b'?' | b'=' | b'-' | b'_' | b'.' | b'~' | b'+' | b'%' | b'&')
+        });
+        if !tail.starts_with("/?token=") || !safe {
+            return Ok(None);
+        }
+        format!("http://127.0.0.1:{port}{tail}")
+    };
+    Ok(Some((port, url)))
 }
 
 /// 对 stdout 流进行增量解析：累积不完整行，逐行喂给 [`parse_ready_line`]。
@@ -100,6 +123,16 @@ mod tests {
     fn matches_without_trailing_newline() {
         let got = parse_ready_line("dsh web: http://127.0.0.1:3080").unwrap();
         assert_eq!(got, Some((3080, "http://127.0.0.1:3080".into())));
+    }
+
+    #[test]
+    fn matches_ready_line_with_token() {
+        // dsh 0.1.5 起带 token —— 必须原样带进导航 URL（否则停在登录页）
+        let got = parse_ready_line("dsh web: http://127.0.0.1:38571/?token=abc-DEF_123\n").unwrap();
+        assert_eq!(
+            got,
+            Some((38571, "http://127.0.0.1:38571/?token=abc-DEF_123".into()))
+        );
     }
 
     #[test]

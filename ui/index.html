@@ -52,31 +52,21 @@
     50% { opacity: 1; transform: scale(1); }
   }
 
-  /* 状态指示：让用户能区分 splash vs 真黑屏 */
+  /* 状态指示：三点下方一行纯文字轮播，无边框无底色 */
   .status {
-    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    font-size: 12px; color: var(--splash-dim);
-    border: 1px solid var(--splash-border); background: #fafbfc;
-    padding: 6px 14px; border-radius: 999px;
-    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--splash-dim);
     max-width: 90%; text-align: center;
+    letter-spacing: .5px;
+    transition: color .2s;
   }
-  .status::before {
-    content: ""; width: 8px; height: 8px; border-radius: 50%;
-    background: #3964FE;
-    box-shadow: 0 0 0 4px rgba(57,100,254,.18);
-    animation: pulse 1.5s ease-in-out infinite;
-  }
-  .status.error::before { background: #dc2626; box-shadow: 0 0 0 4px rgba(220,38,38,.18); animation: none; }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: .4; }
-  }
+  .status.error { color: #dc2626; }
+  .status.fade { opacity: 0; transform: translateY(2px); transition: opacity .25s, transform .25s; }
 </style>
 </head>
 <body>
   <div class="logo" id="logo"><!-- wordmark SVG 由 JS 注入 --></div>
   <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+  <div class="status" id="splash-status">正在启动，请稍候…</div>
 
 <script>
 // DSH wordmark（deepseek [HARNESS]）
@@ -87,11 +77,34 @@ document.getElementById("logo").innerHTML = WORDMARK;
 // ===== 自动跳转 =====
 // 轮询壳 HTTP 桥（window.DSH_SHELL_PORT 由壳注入），拿到 dsh 就绪 URL 后自动跳转。
 // 这绕开了「Tauri navigate 失败 → 卡在 splash 黑屏」的不稳定链路。
+// ===== 启动期通俗话术轮播 =====
+var TIPS = [
+  "正在启动，请稍候…",
+  "正在准备运行环境…",
+  "正在载入所需组件…",
+  "马上就好，别走开～",
+  "快好了，就差最后一步…"
+];
+var tipIdx = 0;
+var statusEl = document.getElementById("splash-status");
+function rotateTip() {
+  if (window.__DSH_READY__) return;
+  if (statusEl && statusEl.classList.contains("error")) return; // 出错时停止轮播
+  tipIdx = (tipIdx + 1) % TIPS.length;
+  if (statusEl) {
+    statusEl.classList.add("fade");
+    setTimeout(function () {
+      statusEl.textContent = TIPS[tipIdx];
+      statusEl.classList.remove("fade");
+    }, 250);
+  }
+}
+setInterval(rotateTip, 1800);
+
 var bridgePort = window.DSH_SHELL_PORT || null;
 var bridgeTryIdx = 0;
 var BRIDGE_FALLBACK = [47563, 47564, 47565];
 var pollCount = 0;
-var statusEl = document.getElementById("splash-status");
 
 function tryJump() {
   if (!bridgePort && bridgeTryIdx < BRIDGE_FALLBACK.length) {
@@ -102,7 +115,7 @@ function tryJump() {
     pollCount++;
     if (pollCount > 30) {
       statusEl.classList.add("error");
-      statusEl.textContent = "未检测到壳桥，请重启壳";
+      statusEl.textContent = "好像没连上，请重启应用再试";
       return;
     }
     setTimeout(tryJump, 1000);
@@ -134,10 +147,11 @@ function retry() {
   pollCount++;
   if (pollCount > 40) {
     statusEl.classList.add("error");
-    statusEl.textContent = "DSH 后端迟迟未就绪，请查看日志或重启壳";
+    statusEl.textContent = "启动时间有点久，请查看日志或重启应用";
     return;
   }
-  statusEl.textContent = "正在启动 DSH 后端…（" + Math.floor(pollCount / 2) + "s）";
+  statusEl.textContent = "正在启动，请稍候…";
+  // 等待秒数交给底部轮播提示维持，不再每轮覆盖，避免与轮播互相闪烁
   setTimeout(tryJump, 1000);
 }
 tryJump();
@@ -147,7 +161,7 @@ setTimeout(function () {
   var el = document.getElementById("splash-status");
   if (el && !window.__DSH_READY__) {
     el.classList.add("error");
-    el.textContent = "DSH 启动超时（>30s），请查看日志或重启壳";
+    el.textContent = "启动超时（>30s），请查看日志或重启应用";
   }
 }, 30000);
 </script>

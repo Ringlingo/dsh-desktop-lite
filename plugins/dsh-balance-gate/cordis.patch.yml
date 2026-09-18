@@ -1,0 +1,6 @@
+# dsh-balance-gate bundle 层：插入插件行。
+# 宿主半边只做两件事：读 data/settings.yaml 的默认 provider，供客户端在拿不到
+# 会话级 provider 时兜底；以及充当 bundle 的装载锚点。真正的显隐在客户端半边。
+- insert:
+    - id: balance-gate
+      name: dsh-balance-gate

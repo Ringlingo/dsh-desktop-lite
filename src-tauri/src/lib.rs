@@ -18,6 +18,7 @@ mod readyline;
 mod rpc;
 mod shell_bridge;
 mod shell_ui;
+mod startup_check;
 mod tray;
 mod update;
 mod version;
@@ -44,17 +45,18 @@ fn portable_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// 调试日志：写入文件 + 推入壳桥日志缓冲区（控制台面板可见）。
+/// 调试日志：写入 `<应用根>/data/logs/shell-debug.log` + 推入壳桥日志缓冲区。
+///
+/// 8-19 基线这里写死了一个开发机绝对路径，
+/// 导致换机后日志落到别的盘、事后无法排障。已改为始终跟随 `portable_root()`。
 pub fn debug_log(msg: &str) {
-    let root = std::env::var("DSH_PORTABLE_ROOT")
-        .unwrap_or_else(|_| "D:/BaiduSyncdisk/AgentWork/projects/dsh-portable".to_string());
-    let dir = format!("{root}/data/logs");
+    let dir = portable_root().join("data").join("logs");
     let _ = std::fs::create_dir_all(&dir);
     use std::io::Write;
     let _ = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(format!("{dir}/shell-debug.log"))
+        .open(dir.join("shell-debug.log"))
         .and_then(|mut f| writeln!(f, "{msg}"));
     // 推入壳桥日志缓冲区
     if let Some(tx) = LOG_SENDER.get() {
@@ -167,8 +169,41 @@ fn backend_start_and_navigate(
     backend: &std::sync::Arc<process::BackendProcess>,
     bridge_port: u16,
 ) -> Result<(), error::AppError> {
-    let cfg = BackendSpawnConfig::from_root(&portable_root())?;
-    let (_, url) = backend.start(&cfg, 90)?;
+    let root = portable_root();
+
+    // ── 数据层自检：**在 spawn 之前**跑；不健康就不拉起后端 ──────────────────
+    // 设计取向：与其让用户面对"卡在加载页"，不如明确告知原因。
+    // 自检脚本编译期内嵌（scripts/startup-selfcheck.mjs），写不出时 fail-open 回落磁盘副本。
+    let check = startup_check::run(&root)?;
+    if !check.ok {
+        let msg = format!(
+            "数据层自检未通过：{}。报告：{}",
+            check.summary,
+            root.join("data")
+                .join("logs")
+                .join("startup-selfcheck.txt")
+                .display()
+        );
+        debug_log(&format!("[selfcheck] 阻断启动：{}", check.summary));
+        // 在加载页上把原因显示出来（自包含 eval，不依赖前端注入是否已完成）
+        if let Some(win) = app.get_webview_window("main") {
+            let lit = serde_json::to_string(&msg)
+                .unwrap_or_else(|_| "\"(数据层自检未通过)\"".to_string());
+            let js = format!(
+                "try{{var d=document.createElement('pre');\
+                 d.style.cssText='position:fixed;left:0;right:0;bottom:0;max-height:45%;overflow:auto;background:#7f1d1d;color:#fff;font:12px/1.6 monospace;padding:10px;z-index:99999;white-space:pre-wrap';\
+                 d.textContent={lit};document.body.appendChild(d)}}catch(e){{}}"
+            );
+            let _ = win.eval(js);
+        }
+        return Err(error::AppError::new(error::AppErrorCode::RuntimeMissing, msg));
+    }
+
+    let cfg = BackendSpawnConfig::from_root(&root)?;
+    // 超时 300s（原 90s）：**首次在"新路径"上启动时**，dsh 必须重写整份镜像
+    // （路径变化会让 proxy 条目里的绝对 file:// 目标失效 ⇒ heal 全量重建；
+    //   实测解压后首次启动会走这条路径）。90s 在慢盘上会误报 READY_TIMEOUT。
+    let (_, url) = backend.start(&cfg, 300)?;
     debug_log(&format!("[nav] Navigating to {url}"));
     if let Some(win) = app.get_webview_window("main") {
         let url: tauri::Url = url.parse().map_err(|e| {

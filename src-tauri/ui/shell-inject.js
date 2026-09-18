@@ -361,7 +361,10 @@
   bal.id = "dshp-bal";
   bal.title = t('balance') + ' — ' + (lang === 'zh' ? '点击刷新' : 'Click to refresh');
   bal.style.cssText = btnStyle + ";min-width:80px;font-size:12.5px";
-  bal.innerHTML = '<span style="font-size:14px;font-weight:600;line-height:1;flex-shrink:0">\u00A5</span><span class="label" style="margin-left:4px">' + t("balance") + ' --</span>';
+  // 余额胶囊：只显示「余额 <金额>」，**金额前不放任何货币符号**。
+  // （原实现在金额前塞了一个人民币符号图标；用户要求去掉。
+  //   动态更新走 setBal()，那里本来就只写 label，保持一致。）
+  bal.innerHTML = '<span class="label">' + t("balance") + ' --</span>';
   setupHover(bal);
   bar.appendChild(bal);
 

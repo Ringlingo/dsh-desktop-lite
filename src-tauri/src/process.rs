@@ -212,6 +212,9 @@ impl BackendProcess {
             .arg("web")
             .arg("--port")
             .arg("0")
+            // 阻止 dsh 自行拉起系统默认浏览器 —— 窗口由壳自己导航
+            // （8-19 基线缺这个参数，实测每启动一次就弹一个浏览器页）
+            .arg("--no-open")
             .env("DSH_HOME", &cfg.dsh_home)
             .env_remove("NODE_OPTIONS")
             .stdin(Stdio::null())
@@ -221,6 +224,10 @@ impl BackendProcess {
         {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        // 注入运行时 PATH（root 从 DSH_HOME 的父目录推导：DSH_HOME = <root>/data）
+        if let Some(root) = cfg.dsh_home.parent() {
+            inject_runtime_path(&mut cmd, root);
         }
 
         let mut child = match cmd.spawn() {
@@ -238,11 +245,13 @@ impl BackendProcess {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
-        // Job Object 兜底（R3）。
+        // Job Object 兜底（R3）：壳进程死亡（含强杀）时由 OS 自动终止整棵后端进程树。
+        // （2026-09-15 曾为诊断 EPERM 临时停用；已确认 EPERM 与 Job 无关，故还原。）
         #[cfg(windows)]
         unsafe {
             let _ = crate::job::assign_current_job(pid);
         }
+        let _ = pid;
 
         *self.child.lock().unwrap() = Some(child);
         {
@@ -371,6 +380,33 @@ impl BackendProcess {
             *r = None;
         }
     }
+}
+
+/// 往子进程 PATH 前插运行时目录（python / git / node），使其不依赖宿主机环境。
+///
+/// 9-11 的修复，8-19 基线里缺失；壳重编时补回。段顺序即优先级：
+/// `runtime/python`、`runtime/git/cmd`、`runtime/git/mingw64/bin`、`runtime/node`。
+fn inject_runtime_path(cmd: &mut Command, root: &std::path::Path) {
+    let segs = [
+        root.join("runtime").join("python"),
+        root.join("runtime").join("git").join("cmd"),
+        root.join("runtime").join("git").join("mingw64").join("bin"),
+        root.join("runtime").join("node"),
+    ];
+    let present: Vec<String> = segs
+        .iter()
+        .filter(|p| p.is_dir())
+        .map(|p| p.display().to_string())
+        .collect();
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    let mut parts = present.clone();
+    if let Ok(existing) = std::env::var("PATH") {
+        if !existing.is_empty() {
+            parts.push(existing);
+        }
+    }
+    cmd.env("PATH", parts.join(&sep.to_string()));
+    crate::debug_log(&format!("spawn: 注入 PATH {} 段", present.len()));
 }
 
 fn now_unix_ms() -> u64 {
