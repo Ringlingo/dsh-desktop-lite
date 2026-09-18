@@ -200,6 +200,77 @@ fn route(
                 Err(e) => json_err(&e.to_string()),
             }
         }
+        // 控制台「更新到最新版」：更新的是 **dsh 核心**（只替换 runtime/dsh，
+        // node/python/git 运行时不动）。实现方式 = 调用随包携带的升级脚本
+        // data/downloads/update-dsh.mjs —— 它自带：版本解析（GitHub tag → npm 回退）、
+        // 暂存安装、启动兼容性预检、备份与回滚、数据层迁移。
+        // 之所以不在壳里自己下载替换：厂商脚本头部明确警告「壳内实现会整个替换
+        // runtime/，会连 node.exe 一起换掉，产物形态对不上就起不来」。
+        // 脚本自己解析版本 ⇒ 本路由不需要 downloadUrl 参数。
+        "/api/shell/update-apply" => {
+            use std::io::{BufRead, BufReader};
+            use std::os::windows::process::CommandExt;
+
+            let root_owned = root.to_path_buf();
+            let candidates = [
+                root_owned.join("data").join("downloads").join("update-dsh.mjs"),
+                root_owned.join("scripts").join("update-dsh.mjs"),
+            ];
+            let script = match candidates.iter().find(|p| p.exists()) {
+                Some(p) => p.clone(),
+                None => return json_err("找不到升级脚本：data/downloads/update-dsh.mjs"),
+            };
+            let node = root_owned.join("runtime").join("node").join("node.exe");
+            if !node.exists() {
+                return json_err("找不到内置 node：runtime/node/node.exe");
+            }
+
+            crate::debug_log(&format!("[update] 启动升级脚本 {}", script.display()));
+            // script 会被 move 进下面的线程 ⇒ 先把回包要用的展示串取出来。
+            let script_display = script.display().to_string();
+            let node2 = node.clone();
+            let root2 = root_owned.clone();
+            std::thread::spawn(move || {
+                let mut cmd = std::process::Command::new(&node2);
+                cmd.arg(&script)
+                    .arg("--root")
+                    .arg(&root2)
+                    .current_dir(&root2)
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+                match cmd.spawn() {
+                    Ok(mut child) => {
+                        if let Some(e) = child.stderr.take() {
+                            std::thread::spawn(move || {
+                                for l in BufReader::new(e).lines().map_while(Result::ok) {
+                                    crate::debug_log(&format!("[update] {l}"));
+                                }
+                            });
+                        }
+                        if let Some(out) = child.stdout.take() {
+                            for l in BufReader::new(out).lines().map_while(Result::ok) {
+                                crate::debug_log(&format!("[update] {l}"));
+                            }
+                        }
+                        let code = child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+                        crate::debug_log(&format!(
+                            "[update] 结束（退出码 {code}）{}",
+                            if code == 0 {
+                                "。请点「重启后端」使新版本生效。"
+                            } else {
+                                "。升级未完成，详情见上方日志。"
+                            }
+                        ));
+                    }
+                    Err(e) => crate::debug_log(&format!("[update] 启动失败：{e}")),
+                }
+            });
+
+            json_ok(serde_json::json!({
+                "ok": true, "started": true, "script": script_display
+            }))
+        }
         "/api/shell/quota" => {
             // body: { "provider": "..." }
             let provider: String = serde_json::from_str(body)

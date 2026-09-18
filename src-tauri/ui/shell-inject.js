@@ -46,6 +46,8 @@
       checkingUpdate: "正在检查更新…", checkFailed: "检查失败: ", newVersion: "发现新版本 ", latest: "已是最新版本",
       confirmUpdate: "确定更新到 ", updateNote: "？更新包地址需 M5 打包流水线产出。",
       updateWaiting: "更新：等待打包流水线接入下载 URL…",
+      updating: "更新中…（进度见「日志」页）",
+      updateStarted: "更新已开始；完成后请点「重启后端」使其生效",
       selectProvider: "请先选择 provider",
       injectError: "注入错误: ",
       textFile: "文本文件",
@@ -73,6 +75,8 @@
       checkingUpdate: "Checking updates…", checkFailed: "Check failed: ", newVersion: "New version found: ", latest: "Already up to date",
       confirmUpdate: "Update to ", updateNote: "? Update package requires M5 pipeline.",
       updateWaiting: "Update: waiting for pipeline download URL…",
+      updating: "Updating… (progress in the Logs tab)",
+      updateStarted: "Update started — click Restart backend when it finishes",
       selectProvider: "Please select a provider first",
       injectError: "Injection error: ",
       textFile: "Text file",
@@ -640,7 +644,11 @@
     } else if ((el = findEl(e, "a-update-apply"))) {
       if (!state.latest) return;
       if (!confirm(t('confirmUpdate') + state.latest + t('updateNote'))) return;
-      setTip(t('updateWaiting'));
+      setTip(t('updating'));
+      api("/api/shell/update-apply", {}).then(function (r) {
+        if (r && r.ok) { setTip(t('updateStarted')); }
+        else { setTip(t('checkFailed') + ((r && r.error) || '')); }
+      }).catch(function (err) { setTip(t('checkFailed') + err); });
     } else if ((el = findEl(e, "a-provider-apply"))) {
       var sel = $("a-provider-select");
       var v = sel ? sel.value : "";
