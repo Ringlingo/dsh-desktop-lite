@@ -16,7 +16,6 @@
   <a href="#功能特性">功能</a> ·
   <a href="#便携性">便携性</a> ·
   <a href="#从源码构建">构建</a> ·
-  <a href="#维护与发布工具">工具</a> ·
   <a href="#目录结构">目录</a>
 </p>
 
@@ -24,7 +23,7 @@
 
 ## 下载
 
-从 [GitHub Releases](../../releases) 下载最新的 `dsh-desktop-lite-vX.X.X.zip`（约 **356 MB**），
+从 [GitHub Releases](../../releases) 下载最新的 `dsh-desktop-lite-vX.X.X.zip`（约 **208 MB**），
 解压到任意目录，双击 `dsh-desktop-lite.exe` 即可。
 
 **无需安装 Node.js / Python / Git，无需配置环境** —— 三者都随包携带。
@@ -134,25 +133,15 @@ cd ..            # 回到仓库根
 
 产物在 `release/dsh-desktop-lite/`。
 
-## 维护与发布工具
+### 换包体检
 
-| 工具 | 用途 |
-| --- | --- |
-| `tools/check-dsh-patches.mjs` | **换包体检**：11 项只读检查，确认可移植性补丁是否都还在位（缺哪项就指向文档哪一节） |
-| `docs/APPLY-ON-NEW-PACKAGE.md` | **换包/升级后的恢复清单** —— 哪些修复不在源码树里、怎么逐项恢复 |
-| `docs/fix-plan-2026-09-16.md` | 可移植性问题的完整根因与实测证据（问题史） |
-| `scripts/build-release.ps1` | 编译 exe + 组装完整便携包 |
-| `scripts/push-to-github.ps1` | 一键推送到 GitHub（默认保留远端历史，`-Fresh` 覆盖） |
-| `scripts/make-release.ps1` | 脱敏 → 打干净 zip → 核对内容 →（可选）创建 GitHub Release |
-
-换包后建议先跑一次体检：
+换入新的上游包之后，跑一次只读体检，确认可移植性补丁都还在位：
 
 ```powershell
 runtime\node\node.exe tools\check-dsh-patches.mjs --root .
 ```
 
 > ⚠️ 含中文的 `.ps1` **必须存为 UTF-8 with BOM**，否则 Windows PowerShell 5.1 会按 GBK 解码并报假语法错误。
-> 详见 `docs/APPLY-ON-NEW-PACKAGE.md` §7。
 
 ## 目录结构
 
@@ -175,7 +164,7 @@ dsh-desktop-lite/
 └── _tools/                      # 维护脚本（自检 / 装插件 / 剥冗余 / 升级）
 ```
 
-**整包大小**：约 **561 MB**（含全部运行时）；打完 zip 约 **356 MB**。
+**整包大小**：约 **561 MB**（含全部运行时）；打完 zip 约 **208 MB**。
 
 ## 技术栈
 
@@ -231,7 +220,6 @@ dsh-desktop-lite/
   <a href="#features">Features</a> ·
   <a href="#portability">Portability</a> ·
   <a href="#build-from-source">Build</a> ·
-  <a href="#maintenance--release-tooling">Tooling</a> ·
   <a href="#directory-structure">Structure</a>
 </p>
 
@@ -239,7 +227,7 @@ dsh-desktop-lite/
 
 ## Download
 
-Download the latest `dsh-desktop-lite-vX.X.X.zip` (~**356 MB**) from [GitHub Releases](../../releases),
+Download the latest `dsh-desktop-lite-vX.X.X.zip` (~**208 MB**) from [GitHub Releases](../../releases),
 extract it anywhere, and double-click `dsh-desktop-lite.exe`.
 
 **No Node.js / Python / Git installation, no environment setup** — all three ship inside the package.
@@ -351,25 +339,16 @@ cd ..            # back to repo root
 
 Output lands in `release/dsh-desktop-lite/`.
 
-## Maintenance & release tooling
+### Package health check
 
-| Tool | Purpose |
-| --- | --- |
-| `tools/check-dsh-patches.mjs` | **Package health check**: 11 read-only checks that every portability patch is still in place, each pointing at the matching doc section |
-| `docs/APPLY-ON-NEW-PACKAGE.md` | **Recovery checklist** for a new upstream package — which fixes live outside the source tree and how to restore each one |
-| `docs/fix-plan-2026-09-16.md` | Full root-cause history of the portability work, with measurements |
-| `scripts/build-release.ps1` | Build the exe and assemble the full portable package |
-| `scripts/push-to-github.ps1` | One-command push (preserves remote history; `-Fresh` overwrites) |
-| `scripts/make-release.ps1` | Desensitize → build a clean zip → verify contents → (optionally) create a GitHub Release |
-
-Run the health check after swapping in a new upstream package:
+After swapping in a new upstream package, run the read-only check to confirm every portability patch is still in place:
 
 ```powershell
 runtime\node\node.exe tools\check-dsh-patches.mjs --root .
 ```
 
 > ⚠️ A `.ps1` containing non-ASCII text **must be saved as UTF-8 with BOM**; otherwise Windows
-> PowerShell 5.1 decodes it as GBK and reports bogus syntax errors. See `docs/APPLY-ON-NEW-PACKAGE.md` §7.
+> PowerShell 5.1 decodes it as GBK and reports bogus syntax errors.
 
 ## Directory Structure
 
@@ -392,7 +371,7 @@ dsh-desktop-lite/
 └── _tools/                      # Maintenance scripts (self-check / install-plugin / slim / update)
 ```
 
-**Full package size**: ~**561 MB** (all runtimes included); ~**356 MB** zipped.
+**Full package size**: ~**561 MB** (all runtimes included); ~**208 MB** zipped.
 
 ## Tech Stack
 
