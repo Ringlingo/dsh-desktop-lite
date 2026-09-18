@@ -101,6 +101,34 @@
 - **换路径后的首次启动会重建镜像**：代理条目里存的是绝对路径，路径变了就失效 ⇒ dsh 全量重建。
   后端启动超时已放宽到 **300 s** 以覆盖慢盘。
 
+## 优势与局限
+
+> 定位：不是"给 CLI 套个壳"，而是**把整套运行时与后端做成免安装的便携发行版**。
+> 下面按这个定位如实分列优势与已知局限。
+
+### 优势
+
+| # | 优势 | 具体表现 |
+|---|------|---------|
+| 1 | **真·零依赖便携** | Node.js / Python / Git / DSH 全部随包；解压双击即用，不写系统环境、不要求预装任何 CLI |
+| 2 | **可移植性工程化** | 依赖以 dsh 原生「代理目录」打包（400+ 条**真实目录、0 软链接**）：ZIP 往返无损、网盘同步不会被物化、换机**不需要建链接权限**（受限账户亦可用） |
+| 3 | **换路径自愈** | 换目录 / 换机器后首次启动由 dsh 自动重建镜像（实测 411 条目标全量改写），后端启动超时放宽至 300 s 覆盖慢盘 |
+| 4 | **启动自检 + fail-open** | 每次启动前检查物化条目 / 悬空链接 / 孤儿锁 / 清单一致性；自检脚本写失败时**回落磁盘副本**而非阻断启动 |
+| 5 | **可验证** | 单元测试 + `tools/check-dsh-patches.mjs` **11 项只读体检**，补丁是否在位可一键判定（且做过负向对照验证） |
+| 6 | **更新安全** | SHA256 校验 + 原子替换 + 回滚；退出杀干净整棵子进程树 |
+| 7 | **桌面体验完整** | 自定义标题栏（编辑 / 帮助菜单、余额、控制台入口）、托盘常驻、设置页可视化内置运行时、后端日志面板 |
+
+### 局限（已知，未隐藏）
+
+| # | 局限 | 说明与影响 |
+|---|------|-----------|
+| 1 | **深度补丁上游 dsh** | 4 处 `dsh-app-boot` + 1 处设置页补丁**不在上游**；dsh 升级后需按体检结果**人工重放**（当前无自动重放脚本，这是最大的维护风险） |
+| 2 | **仅 Windows** | 依赖 WebView2 与 Windows 进程模型；macOS / Linux 未支持 |
+| 3 | **包体较大** | 整包约 **561 MB**（含三个运行时），zip 约 **208 MB** —— 换取的是"零安装" |
+| 4 | **暂无 CI** | 编译与体检目前手动执行，未接 GitHub Actions |
+| 5 | **会话与可观测性偏薄** | 不做 fork / replay / token 用量看板（基础会话与工作区能力由 dsh 本体提供） |
+| 6 | **首次启动稍慢** | 在新路径上首次启动需重建镜像（约十几秒，取决于磁盘性能） |
+
 ## 系统要求
 
 - **操作系统**：Windows 10 1809+ / Windows 11 x64
@@ -306,6 +334,34 @@ This is where the project differs most from a plain Electron/Tauri bundle — an
 - **The first launch after a path change rebuilds the mirror**: proxy entries store absolute targets,
   so a moved package invalidates them and dsh rebuilds the whole set. The backend start timeout has been
   raised to **300 s** to cover slow disks.
+
+## Strengths and limitations
+
+> Positioning: not "a GUI shell around a CLI", but **a ready-to-run portable distribution that ships the whole runtime and backend**.
+> The list below follows that positioning, and states both sides honestly.
+
+### Strengths
+
+| # | Strength | What it means |
+|---|----------|---------------|
+| 1 | **Truly zero-dependency portable** | Node.js / Python / Git / DSH all ship inside; extract and double-click — no system changes, no pre-installed CLI required |
+| 2 | **Portability as engineering** | Dependencies are packed as dsh-native **proxy directories** (400+ **real directories, 0 symlinks**): ZIP round-trips losslessly, cloud-sync cannot materialize them, and moving to another machine needs **no link-creation privilege** (restricted accounts work) |
+| 3 | **Self-healing on path change** | After a move, dsh rebuilds the mirror on first launch (measured: all 411 targets rewritten); backend start timeout raised to 300 s for slow disks |
+| 4 | **Startup self-check + fail-open** | Every launch verifies materialized entries, dangling links, orphan locks and manifest consistency; when the check cannot write, it **falls back to the on-disk copy** instead of blocking startup |
+| 5 | **Verifiable** | Unit tests plus `tools/check-dsh-patches.mjs` — **11 read-only checks** that decide in one command whether every patch is still in place (validated with a negative control) |
+| 6 | **Safe updates** | SHA256 verification + atomic replacement + rollback; exit kills the entire child process tree |
+| 7 | **Complete desktop experience** | Custom title bar (Edit/Help menus, balance, console entry), tray residency, runtime status page, backend log panel |
+
+### Limitations (known, not hidden)
+
+| # | Limitation | Impact |
+|---|-----------|--------|
+| 1 | **Deep patches to upstream dsh** | 4 patches in `dsh-app-boot` + 1 in the settings shell are **not upstream**; after a dsh upgrade they must be **re-applied by hand** (no automatic re-apply script yet — the biggest maintenance risk) |
+| 2 | **Windows only** | Depends on WebView2 and the Windows process model; macOS / Linux unsupported |
+| 3 | **Large package** | ~**561 MB** unpacked (three runtimes included), ~**208 MB** zipped — the price of "zero install" |
+| 4 | **No CI yet** | Builds and health checks are run manually; GitHub Actions not wired up |
+| 5 | **Thin session/observability layer** | No fork / replay / token-usage dashboard (basic sessions and workspaces come from dsh core) |
+| 6 | **Slower first launch** | The very first launch from a new path rebuilds the mirror (a few seconds, disk-dependent) |
 
 ## System Requirements
 
