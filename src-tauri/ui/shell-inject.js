@@ -519,6 +519,63 @@
     }).catch(function (e) { setBal("--", t("queryFail") + e); });
   }
 
+  // ---------- 升级进度 ----------
+  // 动态插入一条细进度条（挂在「操作」页提示行上方），避免改动面板布局标记。
+  function ensureProgressEl() {
+    var el = $("dshp-prog");
+    if (el) return el;
+    var host = $("dshp-tip");
+    if (!host || !host.parentNode) return null;
+    var wrap = document.createElement("div");
+    wrap.id = "dshp-prog";
+    wrap.style.cssText = "margin:8px 0 6px;display:none";
+    var track = document.createElement("div");
+    track.style.cssText = "height:6px;border-radius:3px;background:rgba(128,128,128,.25);overflow:hidden";
+    var fill = document.createElement("div");
+    fill.id = "dshp-prog-fill";
+    fill.style.cssText = "height:100%;width:0%;border-radius:3px;background:#4a9eff;transition:width .25s ease";
+    track.appendChild(fill);
+    var label = document.createElement("div");
+    label.id = "dshp-prog-text";
+    label.style.cssText = "margin-top:4px;font-size:11.5px;color:var(--dshp-fg-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+    wrap.appendChild(track);
+    wrap.appendChild(label);
+    host.parentNode.insertBefore(wrap, host);
+    return wrap;
+  }
+  function setUpdateProgress(pct, text, tone) {
+    var wrap = ensureProgressEl();
+    if (!wrap) return;
+    if (pct == null) { wrap.style.display = "none"; return; }
+    wrap.style.display = "block";
+    var fill = $("dshp-prog-fill");
+    var label = $("dshp-prog-text");
+    if (fill) {
+      fill.style.width = pct + "%";
+      fill.style.background = tone === 'ok' ? '#35c46a' : tone === 'err' ? '#e5534b' : '#4a9eff';
+    }
+    if (label) label.textContent = text;
+  }
+  // 从升级脚本输出里识别阶段（与 scripts/update-dsh-progress.ps1 的阶段表保持一致）
+  function stageFromLine(line) {
+    var S = [
+      ["运行时升级", 4, "准备"], ["应用根目录", 6, "定位目录"], ["内置 node", 8, "检查运行时"],
+      ["当前 dsh 版本", 10, "读取当前版本"], ["应用未在运行", 12, "运行中检查"],
+      ["应用正在运行", 12, "运行中检查（未通过）"], ["目标 dsh 版本", 16, "解析目标版本"],
+      ["解析来源", 18, "解析目标版本"], ["npm", 45, "下载并暂存（最慢的一步）"],
+      ["暂存", 45, "下载并暂存"], ["预检", 68, "启动兼容性预检"], ["备份", 78, "备份现有运行时"],
+      ["替换", 88, "替换 runtime/dsh"], ["迁移", 92, "数据层迁移"], ["真机", 95, "真机启动预检"],
+      ["完成", 100, "收尾"], ["收尾", 100, "收尾"]
+    ];
+    for (var i = 0; i < S.length; i++) { if (line.indexOf(S[i][0]) >= 0) return { p: S[i][1], n: S[i][2] }; }
+    return null;
+  }
+  var UPD_TXT = {
+    zh: { done: '更新完成', restart: '请重新启动应用以加载新版本', needQuit: '应用仍在运行：请从托盘彻底退出后重试', failed: '更新失败（退出码 ' },
+    en: { done: 'Update complete', restart: 'Restart the app to load the new version', needQuit: 'App still running: quit completely from the tray and retry', failed: 'Update failed (exit code ' }
+  };
+  function updTxt() { return UPD_TXT[lang === 'en' ? 'en' : 'zh']; }
+
   // ---------- 日志 ----------
   function pollLogs() {
     api("/api/shell/logs?since=" + state.logsCursor, undefined, "GET").then(function (r) {
@@ -529,6 +586,30 @@
       for (var i = 0; i < lines.length; i++) {
         var L = lines[i];
         if (L.line.indexOf("DASHBOOT_MARKER") >= 0) continue; // 跳过启动噪音
+        // 升级进度：解析壳写入的 [update] 行 → 驱动进度条与最终结果
+        if (L.line.indexOf("[update]") >= 0) {
+          var ub = L.line.replace(/^[\s\S]*?\[update\]\s?/, "");
+          if (ub.indexOf("结束（退出码") >= 0) {
+            var um = ub.match(/退出码\s*(-?\d+)/);
+            var ucode = um ? parseInt(um[1], 10) : -1;
+            state.updateRunning = false;
+            var ubtn = $("a-update-apply"); if (ubtn) ubtn.disabled = false;
+            if (ucode === 0) {
+              setUpdateProgress(100, '100%  ' + updTxt().done, 'ok');
+              setTip(updTxt().done + '；' + updTxt().restart);
+            } else {
+              setUpdateProgress(null);
+              setTip(updTxt().failed + ucode + '）' + (state.updSawRunning ? ' — ' + updTxt().needQuit : ''));
+            }
+          } else if (ub.indexOf("启动升级脚本") < 0) {
+            if (ub.indexOf("应用正在运行") >= 0) state.updSawRunning = true;
+            var ust = stageFromLine(ub);
+            if (ust) {
+              if (!state.updPct || ust.p > state.updPct) state.updPct = ust.p;
+              setUpdateProgress(state.updPct, state.updPct + '%  ' + ust.n);
+            }
+          }
+        }
         var div = document.createElement("div");
         div.className = "line" + (L.stream === "stderr" ? " err" : "") + (L.stream === "shell" ? " shell" : "");
         var ts = L.ts ? new Date(L.ts).toLocaleTimeString() : "";
@@ -644,11 +725,22 @@
     } else if ((el = findEl(e, "a-update-apply"))) {
       if (!state.latest) return;
       if (!confirm(t('confirmUpdate') + state.latest + t('updateNote'))) return;
+      state.updPct = 2; state.updSawRunning = false; state.updateRunning = true;
+      setUpdateProgress(2, (lang === 'en' ? '2%  starting' : '2%  正在启动升级脚本'));
       setTip(t('updating'));
       api("/api/shell/update-apply", {}).then(function (r) {
         if (r && r.ok) { setTip(t('updateStarted')); }
-        else { setTip(t('checkFailed') + ((r && r.error) || '')); }
-      }).catch(function (err) { setTip(t('checkFailed') + err); });
+        else {
+          state.updateRunning = false;
+          var btn = $("a-update-apply"); if (btn) btn.disabled = false;
+          setUpdateProgress(null);
+          setTip(t('checkFailed') + ((r && r.error) || ''));
+        }
+      }).catch(function (err) {
+        state.updateRunning = false;
+        setUpdateProgress(null);
+        setTip(t('checkFailed') + err);
+      });
     } else if ((el = findEl(e, "a-provider-apply"))) {
       var sel = $("a-provider-select");
       var v = sel ? sel.value : "";
