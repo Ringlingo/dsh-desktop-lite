@@ -46,8 +46,8 @@
       checkingUpdate: "正在检查更新…", checkFailed: "检查失败: ", newVersion: "发现新版本 ", latest: "已是最新版本",
       confirmUpdate: "确定更新到 ", updateNote: "？更新包地址需 M5 打包流水线产出。",
       updateWaiting: "更新：等待打包流水线接入下载 URL…",
-      updating: "更新中…（进度见「日志」页）",
-      updateStarted: "更新已开始；完成后请点「重启后端」使其生效",
+      updating: "更新中…（后端临时暂停，完成后自动恢复）",
+      updateStarted: "更新已开始：后端会临时暂停，完成后自动重启",
       selectProvider: "请先选择 provider",
       injectError: "注入错误: ",
       textFile: "文本文件",
@@ -75,8 +75,8 @@
       checkingUpdate: "Checking updates…", checkFailed: "Check failed: ", newVersion: "New version found: ", latest: "Already up to date",
       confirmUpdate: "Update to ", updateNote: "? Update package requires M5 pipeline.",
       updateWaiting: "Update: waiting for pipeline download URL…",
-      updating: "Updating… (progress in the Logs tab)",
-      updateStarted: "Update started — click Restart backend when it finishes",
+      updating: "Updating… (backend pauses briefly, then restarts)",
+      updateStarted: "Update started: the backend pauses, then restarts automatically",
       selectProvider: "Please select a provider first",
       injectError: "Injection error: ",
       textFile: "Text file",
@@ -571,8 +571,8 @@
     return null;
   }
   var UPD_TXT = {
-    zh: { done: '更新完成', restart: '请重新启动应用以加载新版本', needQuit: '应用仍在运行：请从托盘彻底退出后重试', failed: '更新失败（退出码 ' },
-    en: { done: 'Update complete', restart: 'Restart the app to load the new version', needQuit: 'App still running: quit completely from the tray and retry', failed: 'Update failed (exit code ' }
+    zh: { done: '更新完成，后端已自动重启', restart: '可在「日志」页查看升级过程', needQuit: '替换 dsh 时原生模块仍被占用：请完全退出应用（含托盘）后重试', failed: '更新失败（退出码 ' },
+    en: { done: 'Update complete — backend restarted automatically', restart: 'See the Logs tab for the upgrade output', needQuit: 'Native modules were still locked: quit the app completely (incl. tray) and retry', failed: 'Update failed (exit code ' }
   };
   function updTxt() { return UPD_TXT[lang === 'en' ? 'en' : 'zh']; }
 

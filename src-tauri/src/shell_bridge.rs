@@ -200,13 +200,14 @@ fn route(
                 Err(e) => json_err(&e.to_string()),
             }
         }
-        // 控制台「更新到最新版」：更新的是 **dsh 核心**（只替换 runtime/dsh，
-        // node/python/git 运行时不动）。实现方式 = 调用随包携带的升级脚本
-        // data/downloads/update-dsh.mjs —— 它自带：版本解析（GitHub tag → npm 回退）、
-        // 暂存安装、启动兼容性预检、备份与回滚、数据层迁移。
-        // 之所以不在壳里自己下载替换：厂商脚本头部明确警告「壳内实现会整个替换
-        // runtime/，会连 node.exe 一起换掉，产物形态对不上就起不来」。
-        // 脚本自己解析版本 ⇒ 本路由不需要 downloadUrl 参数。
+        // 控制台「更新到最新版」：更新对象是 **dsh 核心**（只替换 runtime/dsh，
+        // node/python/git 运行时不动）。调用方式遵循厂商脚本的设计：
+        //   —— 脚本帮助文本原文：`--app-stopped  调用方已停止 DSH 后端（壳内一键更新用）`
+        // 即：壳先停掉后端（释放 runtime/dsh 上被占用的原生模块 —— libvips/sharp/koffi/
+        // node-pty/rg.exe），再以 --app-stopped 调用升级脚本，最后由壳把后端重新拉起。
+        // ⇒ 全程在应用内完成，用户无需退出应用。
+        // 之所以不在壳里自己下载替换：脚本自带版本解析（GitHub tag → npm 回退）、
+        // 暂存安装、启动兼容性预检、备份与回滚、数据层迁移，比壳内重写可靠得多。
         "/api/shell/update-apply" => {
             use std::io::{BufRead, BufReader};
             use std::os::windows::process::CommandExt;
@@ -225,21 +226,30 @@ fn route(
                 return json_err("找不到内置 node：runtime/node/node.exe");
             }
 
-            crate::debug_log(&format!("[update] 启动升级脚本 {}", script.display()));
             // script 会被 move 进下面的线程 ⇒ 先把回包要用的展示串取出来。
             let script_display = script.display().to_string();
+
+            // ① 先停后端：这是让升级脚本能替换 runtime/dsh 的前提（否则原生模块被占用，
+            //    rename 会失败、复制兜底会产出半新半旧的 runtime）。
+            crate::debug_log("[update] 暂停后端，释放 runtime/dsh 的文件占用…");
+            backend.stop();
+            std::thread::sleep(std::time::Duration::from_secs(2));
+
+            crate::debug_log(&format!("[update] 启动升级脚本 {}", script_display));
             let node2 = node.clone();
             let root2 = root_owned.clone();
+            let backend2 = backend.clone();
             std::thread::spawn(move || {
                 let mut cmd = std::process::Command::new(&node2);
                 cmd.arg(&script)
                     .arg("--root")
                     .arg(&root2)
+                    .arg("--app-stopped") // ← 声明后端已由调用方停止（壳桥仍在，属壳自身进程）
                     .current_dir(&root2)
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
                     .creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-                match cmd.spawn() {
+                let code = match cmd.spawn() {
                     Ok(mut child) => {
                         if let Some(e) = child.stderr.take() {
                             std::thread::spawn(move || {
@@ -253,18 +263,33 @@ fn route(
                                 crate::debug_log(&format!("[update] {l}"));
                             }
                         }
-                        let code = child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
-                        crate::debug_log(&format!(
-                            "[update] 结束（退出码 {code}）{}",
-                            if code == 0 {
-                                "。请点「重启后端」使新版本生效。"
-                            } else {
-                                "。升级未完成，详情见上方日志。"
-                            }
-                        ));
+                        child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1)
                     }
-                    Err(e) => crate::debug_log(&format!("[update] 启动失败：{e}")),
+                    Err(e) => {
+                        crate::debug_log(&format!("[update] 启动失败：{e}"));
+                        -1
+                    }
+                };
+
+                // ② 无论成败都把后端拉回来（失败时它也带着自己的备份回滚过）。
+                match BackendSpawnConfig::from_root(&root2) {
+                    Ok(cfg) => match backend2.start(&cfg, 120) {
+                        Ok((port, _)) => {
+                            crate::debug_log(&format!("[update] 后端已重新启动（端口 {port}）"))
+                        }
+                        Err(e) => crate::debug_log(&format!("[update] 后端重启失败：{e}")),
+                    },
+                    Err(e) => crate::debug_log(&format!("[update] 读取后端配置失败：{e}")),
                 }
+
+                crate::debug_log(&format!(
+                    "[update] 结束（退出码 {code}）{}",
+                    if code == 0 {
+                        "。升级完成，后端已自动重启。"
+                    } else {
+                        "。升级未完成，详情见上方日志。"
+                    }
+                ));
             });
 
             json_ok(serde_json::json!({
