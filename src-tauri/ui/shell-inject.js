@@ -48,6 +48,14 @@
       updateWaiting: "更新：等待打包流水线接入下载 URL…",
       updating: "更新中…（后端临时暂停，完成后自动恢复）",
       updateStarted: "更新已开始：后端会临时暂停，完成后自动重启",
+      cancel: "取消",
+      restartNote: "后端进程会被重启，正在执行的请求会中断（界面会自动重连）。",
+      updateTitle: "升级 dsh 运行时",
+      updateStart: "开始更新",
+      updBooting: "正在启动升级脚本",
+      updateNote1: "只替换 <code>runtime/dsh</code>，内置的 Node / Python / Git 运行时不动",
+      updateNote2: "升级期间后端会临时暂停，完成后自动重启（界面会自动重连）",
+      updateNote3: "升级前自动备份，失败可回滚",
       selectProvider: "请先选择 provider",
       injectError: "注入错误: ",
       textFile: "文本文件",
@@ -77,6 +85,14 @@
       updateWaiting: "Update: waiting for pipeline download URL…",
       updating: "Updating… (backend pauses briefly, then restarts)",
       updateStarted: "Update started: the backend pauses, then restarts automatically",
+      cancel: "Cancel",
+      restartNote: "The backend process restarts; in-flight requests are interrupted (the UI reconnects automatically).",
+      updateTitle: "Upgrade dsh runtime",
+      updateStart: "Start update",
+      updBooting: "starting the upgrade script",
+      updateNote1: "Only <code>runtime/dsh</code> is replaced; the bundled Node / Python / Git runtimes stay untouched",
+      updateNote2: "The backend pauses during the upgrade and restarts automatically (the UI reconnects)",
+      updateNote3: "A backup is taken first, so a failure can be rolled back",
       selectProvider: "Please select a provider first",
       injectError: "Injection error: ",
       textFile: "Text file",
@@ -134,6 +150,21 @@
     "#dshp-titlebar .tb-winbtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
     "#dshp-titlebar .tb-winbtn.close:hover{background:#c42b1c;color:#fff}",
     "#dshp-titlebar .tb-winbtn svg{width:10px;height:10px}",
+    "#dshp-modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2147483700;display:flex;align-items:center;justify-content:center;padding:24px}",
+    "#dshp-modal{width:368px;max-width:100%;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:18px 18px 16px;color:var(--dsw-alias-label-primary);font:13px/1.6 -apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;box-sizing:border-box}",
+    "#dshp-modal .m-head{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}",
+    "#dshp-modal .m-head svg{flex:none;color:var(--dsw-alias-label-secondary)}",
+    "#dshp-modal .m-ver{display:flex;align-items:center;gap:8px;margin:12px 0;font-family:ui-monospace,Consolas,'Courier New',monospace;font-size:12px}",
+    "#dshp-modal .m-ver .old{color:var(--dsw-alias-label-tertiary)}",
+    "#dshp-modal .m-ver .arrow{color:var(--dsw-alias-label-tertiary)}",
+    "#dshp-modal .m-ver .new{padding:3px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary);font-weight:600}",
+    "#dshp-modal .m-note{font-size:12.5px;line-height:1.75;color:var(--dsw-alias-label-secondary)}",
+    "#dshp-modal .m-note code{font-family:ui-monospace,Consolas,'Courier New',monospace;color:var(--dsw-alias-label-primary)}",
+    "#dshp-modal .m-acts{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}",
+    "#dshp-modal .m-acts button{border-radius:8px;padding:6px 15px;font:inherit;font-size:12.5px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);transition:background .12s}",
+    "#dshp-modal .m-acts button:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+    "#dshp-modal .m-acts button.primary{background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base)}",
+    "#dshp-modal .m-acts button.primary:hover{opacity:.88}",
     "#dshp-panel{position:fixed;top:48px;right:14px;width:680px;max-width:calc(100vw - 28px);height:72vh;max-height:680px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;display:none;flex-direction:column;overflow:hidden;color:var(--dsw-alias-label-primary);z-index:2147483600;font:13px/1.5 -apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif}",
     "#dshp-panel.open{display:flex}",
     "#dshp-head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
@@ -519,6 +550,65 @@
     }).catch(function (e) { setBal("--", t("queryFail") + e); });
   }
 
+  // ---------- 通用确认对话框 ----------
+  // 取代原生 confirm()：原生弹窗由 WebView 渲染 ⇒ 位置偏上、样式不可控、不跟随主题。
+  // 这里自绘一个居中的对话框，颜色全部取自 dsh 主题变量（--dsw-alias-*），
+  // 因此自动适配深/浅色，与「控制台面板」同一套视觉。
+  function showDialog(opts) {
+    opts = opts || {};
+    var mask = document.createElement("div");
+    mask.id = "dshp-modal-mask";
+    var ver = "";
+    if (opts.versionFrom && opts.versionTo) {
+      ver = '<div class="m-ver">' +
+        '<span class="old">' + escapeHtml(opts.versionFrom) + '</span>' +
+        '<span class="arrow">→</span>' +
+        '<span class="new">' + escapeHtml(opts.versionTo) + '</span>' +
+        '</div>';
+    }
+    var notes = "";
+    if (opts.notes && opts.notes.length) {
+      notes = '<div class="m-note">' + opts.notes.map(function (n) { return "<div>· " + n + "</div>"; }).join("") + "</div>";
+    }
+    mask.innerHTML =
+      '<div id="dshp-modal" role="dialog" aria-modal="true">' +
+      '  <div class="m-head">' +
+      '    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">' +
+      '      <path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 1.8v3.2h-3.2"/>' +
+      '    </svg>' +
+      '    <span>' + escapeHtml(opts.title || "") + '</span>' +
+      '  </div>' +
+      ver + notes +
+      '  <div class="m-acts">' +
+      '    <button type="button" data-act="cancel">' + escapeHtml(opts.cancelText || "取消") + '</button>' +
+      '    <button type="button" class="primary" data-act="ok">' + escapeHtml(opts.confirmText || "确定") + '</button>' +
+      '  </div>' +
+      '</div>';
+    document.body.appendChild(mask);
+
+    var closed = false;
+    function close(ok) {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey, true);
+      mask.remove();
+      if (ok && typeof opts.onConfirm === "function") opts.onConfirm();
+    }
+    function onKey(e) {
+      if (e.key === "Escape") { e.preventDefault(); close(false); }
+      else if (e.key === "Enter") { e.preventDefault(); close(true); }
+    }
+    mask.addEventListener("click", function (e) {
+      var act = e.target && e.target.getAttribute ? e.target.getAttribute("data-act") : null;
+      if (act === "ok") { close(true); return; }
+      if (act === "cancel") { close(false); return; }
+      if (!findEl(e, "dshp-modal")) close(false); // 点遮罩空白处关闭
+    });
+    document.addEventListener("keydown", onKey, true);
+    var okBtn = mask.querySelector('button[data-act="ok"]');
+    if (okBtn) { try { okBtn.focus(); } catch (e) { /* 焦点失败无碍 */ } }
+  }
+
   // ---------- 升级进度 ----------
   // 动态插入一条细进度条（挂在「操作」页提示行上方），避免改动面板布局标记。
   function ensureProgressEl() {
@@ -708,12 +798,19 @@
         setTip(t('healthResult') + (h.tcp_ok ? "✓" : "✗") + t('serviceReply') + (h.handshake_ok ? "✓" : "✗") + " · " + h.latency_ms + "ms (" + h.detail + ")");
       }).catch(function (err) { setTip(t("healthFailed") + err); });
     } else if ((el = findEl(e, "a-restart"))) {
-      if (!confirm(t("confirmRestart"))) return;
-      setTip(t("restarting"));
-      api("/api/shell/restart").then(function (r) {
-        if (r.ok) { setTip(t('restarted') + r.port); state.dshReady = false; setTimeout(refreshStatus, 800); setTimeout(discoverProvider, 1500); }
-        else { setTip(t("restartFailed") + (r.error || "")); }
-      }).catch(function (err) { setTip(t("restartFailed") + err); });
+      showDialog({
+        title: t("confirmRestart"),
+        notes: [t("restartNote")],
+        confirmText: t("restart"),
+        cancelText: t("cancel"),
+        onConfirm: function () {
+          setTip(t("restarting"));
+          api("/api/shell/restart").then(function (r) {
+            if (r.ok) { setTip(t('restarted') + r.port); state.dshReady = false; setTimeout(refreshStatus, 800); setTimeout(discoverProvider, 1500); }
+            else { setTip(t("restartFailed") + (r.error || "")); }
+          }).catch(function (err) { setTip(t("restartFailed") + err); });
+        }
+      });
     } else if ((el = findEl(e, "a-update-check"))) {
       setTip(t("checkingUpdate"));
       api("/api/shell/update-check").then(function (r) {
@@ -724,22 +821,35 @@
       }).catch(function (err) { setTip(t("checkFailed") + err); });
     } else if ((el = findEl(e, "a-update-apply"))) {
       if (!state.latest) return;
-      if (!confirm(t('confirmUpdate') + state.latest + t('updateNote'))) return;
-      state.updPct = 2; state.updSawRunning = false; state.updateRunning = true;
-      setUpdateProgress(2, (lang === 'en' ? '2%  starting' : '2%  正在启动升级脚本'));
-      setTip(t('updating'));
-      api("/api/shell/update-apply", {}).then(function (r) {
-        if (r && r.ok) { setTip(t('updateStarted')); }
-        else {
-          state.updateRunning = false;
-          var btn = $("a-update-apply"); if (btn) btn.disabled = false;
-          setUpdateProgress(null);
-          setTip(t('checkFailed') + ((r && r.error) || ''));
+      var verFrom = $("kv-ver") ? $("kv-ver").textContent : "";
+      var updBtn = $("a-update-apply");
+      showDialog({
+        title: t("updateTitle"),
+        versionFrom: verFrom,
+        versionTo: state.latest,
+        notes: [t("updateNote1"), t("updateNote2"), t("updateNote3")],
+        confirmText: t("updateStart"),
+        cancelText: t("cancel"),
+        onConfirm: function () {
+          if (updBtn) updBtn.disabled = true;
+          state.updPct = 2; state.updSawRunning = false; state.updateRunning = true;
+          setUpdateProgress(2, "2%  " + t("updBooting"));
+          setTip(t('updating'));
+          api("/api/shell/update-apply", {}).then(function (r) {
+            if (r && r.ok) { setTip(t('updateStarted')); }
+            else {
+              state.updateRunning = false;
+              if (updBtn) updBtn.disabled = false;
+              setUpdateProgress(null);
+              setTip(t('checkFailed') + ((r && r.error) || ''));
+            }
+          }).catch(function (err) {
+            state.updateRunning = false;
+            if (updBtn) updBtn.disabled = false;
+            setUpdateProgress(null);
+            setTip(t('checkFailed') + err);
+          });
         }
-      }).catch(function (err) {
-        state.updateRunning = false;
-        setUpdateProgress(null);
-        setTip(t('checkFailed') + err);
       });
     } else if ((el = findEl(e, "a-provider-apply"))) {
       var sel = $("a-provider-select");
