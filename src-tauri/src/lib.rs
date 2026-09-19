@@ -204,25 +204,10 @@ fn backend_start_and_navigate(
     // （路径变化会让 proxy 条目里的绝对 file:// 目标失效 ⇒ heal 全量重建；
     //   实测解压后首次启动会走这条路径）。90s 在慢盘上会误报 READY_TIMEOUT。
     let (_, url) = backend.start(&cfg, 300)?;
-    debug_log(&format!("[nav] Navigating to {url}"));
-    if let Some(win) = app.get_webview_window("main") {
-        let url: tauri::Url = url.parse().map_err(|e| {
-            error::AppError::new(error::AppErrorCode::Internal, format!("URL 解析失败: {e}"))
-        })?;
-        match win.navigate(url.clone()) {
-            Ok(_) => debug_log(&format!("[nav] Navigate success: {url}")),
-            Err(e) => debug_log(&format!("[nav] Navigate failed: {e}")),
-        }
-        let app_clone = app.clone();
-        std::thread::spawn(move || {
-            for delay_ms in [2000u64, 5000, 9000] {
-                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                shell_ui::inject(&app_clone, bridge_port);
-            }
-        });
-    } else {
-        debug_log("[nav] get_webview_window(\"main\") 返回 None");
-    }
+    // 导航 + 补注入合成一个入口（window::navigate_and_inject）：
+    // 「更新/重启后端」之后也走同一份实现 —— dsh 每次启动端口会变，
+    // 不重新导航页面会一直停在"重新连接中"。
+    window::navigate_and_inject(app, &url, bridge_port);
     Ok(())
 }
 

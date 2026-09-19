@@ -93,6 +93,19 @@ pub struct BackendProcess {
     stopping: AtomicBool,
 }
 
+/// 现读 `<root>/runtime/dsh` 里的 dsh 版本。
+///
+/// 入参为 `<root>/runtime/node/node.exe` 的路径（与 `ProcessInfo.runtime_node` 同源），
+/// 向上三级拿到应用根目录，再复用 `version` 模块已有的目录/读取实现
+/// （`app.rs` 启动时用的也是这两个函数，避免两处各拼一套路径）。
+fn read_live_dsh_version(runtime_node: &str) -> Option<String> {
+    let root = std::path::Path::new(runtime_node)
+        .parent()? // <root>/runtime/node
+        .parent()? // <root>/runtime
+        .parent()?; // <root>
+    crate::version::read_dsh_version(&crate::version::runtime_dsh_dir(root)).ok()
+}
+
 impl BackendProcess {
     pub fn new(dsh_version: String, dsh_home: String, runtime_node: String) -> Arc<Self> {
         // 创建全局日志通道：sender 给 debug_log，receiver 由本实例消费推入 ring buffer。
@@ -156,8 +169,18 @@ impl BackendProcess {
         *self.state.lock().unwrap()
     }
 
+    /// 后端状态快照。
+    ///
+    /// `dsh_version` **现读** runtime 里的 package.json：`runtime/dsh` 可能被
+    /// 「更新到最新版」整体替换过，而快照是启动时写入的 ⇒ 直接返回缓存会让界面
+    /// 与 `/api/shell/update-check` 一直显示旧版本（表现为"更新完版本不变、
+    /// 还一直提示发现新版本"）。读不到（路径异常 / 文件缺失）时回落缓存值。
     pub fn info(&self) -> ProcessInfo {
-        self.info.lock().unwrap().clone()
+        let mut snap = self.info.lock().unwrap().clone();
+        if let Some(v) = read_live_dsh_version(&snap.runtime_node) {
+            snap.dsh_version = v;
+        }
+        snap
     }
 
     fn push_log(&self, stream: &str, line: String) {
@@ -482,6 +505,33 @@ mod tests {
         assert_eq!(info.dsh_version, "0.1.0-rc.6");
         assert!(info.pid.is_none());
         assert_eq!(info.state, BackendState::Idle);
+    }
+
+    /// 版本必须**现读** runtime —— 否则「更新到最新版」换掉 runtime/dsh 之后，
+    /// 界面与 update-check 仍会显示启动时的旧版本。
+    #[test]
+    fn info_reads_live_dsh_version() {
+        let root = std::env::temp_dir().join(format!("dsh-ver-{}", std::process::id()));
+        let pkg = root
+            .join("runtime")
+            .join("dsh")
+            .join("node_modules")
+            .join("@deepseek-ai")
+            .join("dsh");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(pkg.join("package.json"), r#"{"version":"9.9.9-test"}"#).unwrap();
+        let node = root.join("runtime").join("node").join("node.exe");
+        let p = BackendProcess::new(
+            "0.0.1-old".into(),
+            "d:/data".into(),
+            node.to_string_lossy().to_string(),
+        );
+        assert_eq!(p.info().dsh_version, "9.9.9-test");
+        let _ = std::fs::remove_dir_all(&root);
+
+        // 读不到时回落缓存值：不因缺文件而变成空版本
+        let p2 = BackendProcess::new("0.0.1-old".into(), "d:/data".into(), "node.exe".into());
+        assert_eq!(p2.info().dsh_version, "0.0.1-old");
     }
 
     #[test]

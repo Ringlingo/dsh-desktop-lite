@@ -185,7 +185,14 @@ fn route(
             let cfg = BackendSpawnConfig::from_root(root);
             match cfg {
                 Ok(cfg) => match backend.start(&cfg, 90) {
-                    Ok((port, url)) => json_ok(serde_json::json!({ "ok": true, "port": port, "url": url })),
+                    Ok((port, url)) => {
+                        // 重启后端会换端口 ⇒ 必须重新导航（否则页面停在旧端口显示「重新连接中」）。
+                        if let Some(app) = crate::window::get_app_handle() {
+                            crate::window::navigate_and_inject(app, &url, bridge_port);
+                        }
+                        crate::debug_log(&format!("[restart] 后端已重启并重新导航（端口 {port}）"));
+                        json_ok(serde_json::json!({ "ok": true, "port": port, "url": url }))
+                    }
                     Err(e) => json_err(&e.to_string()),
                 },
                 Err(e) => json_err(&e.to_string()),
@@ -274,8 +281,16 @@ fn route(
                 // ② 无论成败都把后端拉回来（失败时它也带着自己的备份回滚过）。
                 match BackendSpawnConfig::from_root(&root2) {
                     Ok(cfg) => match backend2.start(&cfg, 120) {
-                        Ok((port, _)) => {
-                            crate::debug_log(&format!("[update] 后端已重新启动（端口 {port}）"))
+                        Ok((port, url)) => {
+                            crate::debug_log(&format!("[update] 后端已重新启动（端口 {port}）"));
+                            // dsh 每次启动都会重新选端口 ⇒ 必须重新导航，否则页面一直停在
+                            // 旧端口上显示「重新连接中」。导航会同时补注入壳 UI。
+                            if let Some(app) = crate::window::get_app_handle() {
+                                crate::window::navigate_and_inject(app, &url, bridge_port);
+                                crate::debug_log(&format!("[update] 已重新导航到新端口 {port}"));
+                            } else {
+                                crate::debug_log("[update] 取不到 AppHandle，无法重新导航");
+                            }
                         }
                         Err(e) => crate::debug_log(&format!("[update] 后端重启失败：{e}")),
                     },
